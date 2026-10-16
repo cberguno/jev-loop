@@ -1,0 +1,31 @@
+{
+  "name": "voice-session",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Next.js text-and-voice chat that streams microphone audio to an OpenRouter audio-capable model with live transcripts.",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test",
+    "test:e2e": "node scripts/e2e.mjs",
+    "mock": "node scripts/mock-openrouter.mjs",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "next": "^15.5.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "playwright": "^1.64.1",
+    "typescript": "^5.9.0"
+  }
+}
