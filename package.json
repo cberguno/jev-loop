@@ -13,7 +13,8 @@
     "test": "node --test",
     "test:e2e": "node scripts/e2e.mjs",
     "mock": "node scripts/mock-openrouter.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:browser:live": "playwright test tests/browser/live-voice.spec.ts"
   },
   "dependencies": {
     "next": "^15.5.0",

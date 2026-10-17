@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 /**
  * A tiny OpenRouter-compatible mock for local development and the e2e loop.
- * Implements POST /api/v1/chat/completions (SSE streaming) and
- * GET /api/v1/models, validating that audio turns arrive as
- * `input_audio` content parts with base64 `data` + `format`.
+ * Mirrors the live gpt-audio wire format verified against OpenRouter:
+ *
+ * - `input_audio` content parts carry base64 `data` + `format`.
+ * - Replies stream as `delta.audio.transcript` (text modality rides on the
+ *   audio transcript), plus `delta.audio.data` pcm16 chunks (24 kHz mono).
+ * - Text-only modality requests with no input audio are rejected, like the
+ *   real provider ("requires that either input content or output modality
+ *   contain audio").
  *
  * Run: node scripts/mock-openrouter.mjs [port]
  */
@@ -11,7 +16,8 @@ import http from "node:http";
 
 const port = Number(process.argv[2] ?? process.env.OPENROUTER_MOCK_PORT ?? 4141);
 const MOCK_TRANSCRIPT = "Hello from the mock audio transcription.";
-const MOCK_REPLY = ["Hello", " from", " the", " mock", " model."];
+const MOCK_REPLY = "Hello from the mock model.";
+const PCM_RATE = 24000;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -28,6 +34,16 @@ function isRecord(value) {
 
 function sse(res, event) {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+/** A short sine burst as pcm16, base64, like real streamed reply audio. */
+function pcmChunk(seconds = 0.4) {
+  const n = Math.floor(seconds * PCM_RATE);
+  const bytes = Buffer.alloc(n * 2);
+  for (let i = 0; i < n; i++) {
+    bytes.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * i) / PCM_RATE) * 6000));
+  }
+  return bytes.toString("base64");
 }
 
 const server = http.createServer(async (req, res) => {
@@ -61,30 +77,23 @@ const server = http.createServer(async (req, res) => {
 
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const last = messages[messages.length - 1];
-  const audioPart =
-    isRecord(last) && Array.isArray(last.content)
-      ? last.content.find(
-          (part) => isRecord(part) && part.type === "input_audio" && isRecord(part.input_audio),
-        )
-      : null;
+  const modalities = Array.isArray(body.modalities) ? body.modalities : [];
+  const hasInputAudio =
+    isRecord(last) &&
+    Array.isArray(last.content) &&
+    last.content.some(
+      (part) => isRecord(part) && part.type === "input_audio" && isRecord(part.input_audio),
+    );
 
   console.log(
     JSON.stringify({
       route: "chat/completions",
       model: body.model,
       stream: body.stream,
-      modalities: body.modalities,
-      include: body.include,
+      modalities,
+      voice: body.audio?.voice,
       messages: messages.length,
-      audioPart: audioPart
-        ? {
-            format: audioPart.input_audio.format,
-            base64Bytes: Math.floor((audioPart.input_audio.data.length * 3) / 4),
-            decodedHeader: Buffer.from(audioPart.input_audio.data, "base64")
-              .subarray(0, 4)
-              .toString("latin1"),
-          }
-        : null,
+      hasInputAudio,
     }),
   );
 
@@ -105,11 +114,27 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (audioPart) {
-    const bytes = Buffer.from(audioPart.input_audio.data, "base64");
-    if (audioPart.input_audio.format !== "wav" || bytes.subarray(0, 4).toString("latin1") !== "RIFF") {
+  if (!hasInputAudio && !modalities.includes("audio")) {
+    // Mirror the real provider constraint.
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: {
+          message: "This model requires that either input content or output modality contain audio.",
+        },
+      }),
+    );
+    return;
+  }
+
+  if (hasInputAudio) {
+    const part = last.content.find((p) => isRecord(p) && p.type === "input_audio");
+    const bytes = Buffer.from(part.input_audio.data, "base64");
+    if (part.input_audio.format !== "wav" || bytes.subarray(0, 4).toString("latin1") !== "RIFF") {
       res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: { message: "Audio must be RIFF/WAV base64." } }));
+      res.end(
+        JSON.stringify({ error: { message: "Recording must be RIFF/WAVE base64." } }),
+      );
       return;
     }
   }
@@ -120,15 +145,22 @@ const server = http.createServer(async (req, res) => {
   });
   res.write(": openrouter mock stream\n\n");
 
-  if (audioPart) {
-    // How audio models deliver the user's input transcription.
+const reply = hasInputAudio
+    ? `TRANSCRIPT: ${MOCK_TRANSCRIPT}\nREPLY: ${MOCK_REPLY}`
+    : MOCK_REPLY;
+  // Reply text arrives as the audio transcript, like the live provider.
+  for (const piece of [reply.slice(0, 8), reply.slice(8)]) {
     sse(res, {
-      choices: [{ index: 0, delta: { input_audio_transcription: { text: MOCK_TRANSCRIPT } } }],
+      choices: [{ index: 0, delta: { audio: { transcript: piece } } }],
+      model: body.model,
     });
+    await new Promise((resolve) => setTimeout(resolve, 15));
   }
-  for (const piece of MOCK_REPLY) {
+  // Spoken reply audio chunks (the ASR stage's chunks are simply discarded
+  // by the server route, exactly like the live flow).
+  for (let i = 0; i < 2; i++) {
     sse(res, {
-      choices: [{ index: 0, delta: { content: piece } }],
+      choices: [{ index: 0, delta: { audio: { data: pcmChunk() } } }],
       model: body.model,
     });
     await new Promise((resolve) => setTimeout(resolve, 15));

@@ -9,6 +9,8 @@ export interface TranscriptPanelProps {
   liveUserTranscript: string;
   level: number;
   recording: boolean;
+  /** A spoken reply is currently being played back. */
+  speaking: boolean;
 }
 
 function Bubble({ message }: { message: Message }) {
@@ -34,6 +36,7 @@ export function TranscriptPanel({
   liveUserTranscript,
   level,
   recording,
+  speaking,
 }: TranscriptPanelProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -53,6 +56,11 @@ export function TranscriptPanel({
 
   return (
     <div className="transcript-panel">
+      {speaking ? (
+        <div className="speaker-indicator" role="status">
+          🔊 Model is speaking
+        </div>
+      ) : null}
       <div className="transcript-scroll" ref={scrollerRef} onScroll={onScroll}>
         {conversation && conversation.messages.length > 0 ? (
           conversation.messages.map((message) => <Bubble key={message.id} message={message} />)

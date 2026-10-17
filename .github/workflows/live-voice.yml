@@ -1,0 +1,49 @@
+# Optional LIVE verification against the real OpenRouter API (spends credits).
+# Runs only when dispatched manually AND the OPENROUTER_API_KEY secret exists.
+# The regular CI (.github/workflows/ci.yml) stays mock-only and free.
+name: Live voice verification
+
+on:
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Skip when no API key secret is configured
+        id: gate
+        run: |
+          if [ -z "${{ secrets.OPENROUTER_API_KEY }}" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install
+        if: steps.gate.outputs.skip != 'true'
+        run: npm ci
+      - name: Install Playwright browsers
+        if: steps.gate.outputs.skip != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Build
+        if: steps.gate.outputs.skip != 'true'
+        run: npm run build
+      - name: Live HTTP leg (typed turns on both models + live voice round)
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: openai/gpt-audio
+          OPENROUTER_REAL_E2E: "1"
+          SKIP_NEXT_BUILD: "1"
+        run: npm run test:e2e
+      - name: Live browser leg (full voice turn in Chromium)
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: openai/gpt-audio
+          OPENROUTER_LIVE_E2E: "1"
+        run: npm run test:browser:live

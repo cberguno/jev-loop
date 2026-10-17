@@ -286,6 +286,20 @@ body {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
+}
+
+.speaker-indicator {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  z-index: 5;
+  background: var(--bg-elev-2);
+  border: 1px solid rgba(47, 208, 138, 0.5);
+  color: var(--green);
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 12px;
 }
 
 .transcript-scroll {
