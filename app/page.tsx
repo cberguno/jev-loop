@@ -7,6 +7,7 @@ import { Composer } from "@/components/Composer";
 import { useConversations } from "@/hooks/useConversations";
 import { useVoiceRecorder } from "@/hooks/useVoiceRecorder";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useSpokenReplies } from "@/hooks/useSpokenReplies";
 import { SseParser, tryParseJson } from "@/lib/sse";
 import type { ChatEvent, Role } from "@/lib/types";
 
@@ -34,6 +35,7 @@ export default function Home() {
 
   const recorder = useVoiceRecorder();
   const speech = useSpeechRecognition();
+  const spoken = useSpokenReplies();
   const abortRef = useRef<AbortController | null>(null);
   const busyRef = useRef(false);
 
@@ -71,6 +73,7 @@ export default function Home() {
       setBusy(true);
       busyRef.current = true;
       setBanner(null);
+      spoken.stopAll();
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -118,6 +121,15 @@ export default function Home() {
               }
             } else if (parsed.type === "turn_done") {
               updateMessage(conversationId, assistantMessage.id, { status: "done" });
+            } else if (
+              parsed.type === "audio_chunk" &&
+              typeof parsed.data === "string"
+            ) {
+              // Spoken reply: schedule the pcm16 chunk for gapless playback.
+              spoken.push(
+                parsed.data,
+                typeof parsed.sampleRate === "number" ? parsed.sampleRate : 24000,
+              );
             } else if (parsed.type === "error" && typeof parsed.message === "string") {
               updateMessage(conversationId, assistantMessage.id, {
                 status: "error",
@@ -139,7 +151,7 @@ export default function Home() {
         abortRef.current = null;
       }
     },
-    [active, appendMessage, conversationTurns, createConversation, liveUserTranscript, settings.model, updateMessage],
+    [active, appendMessage, conversationTurns, createConversation, liveUserTranscript, settings.model, spoken, updateMessage],
   );
 
   const onMicDown = useCallback(async () => {
@@ -193,13 +205,15 @@ export default function Home() {
   const stopEverything = useCallback(() => {
     abortRef.current?.abort();
     if (recorder.recording) void recorder.stop();
+    spoken.stopAll();
     setBusy(false);
     busyRef.current = false;
-  }, [recorder]);
+  }, [recorder, spoken]);
 
   useEffect(() => {
     const onUnload = () => {
       abortRef.current?.abort();
+      spoken.stopAll();
       if (recorder.recording) void recorder.stop();
     };
     window.addEventListener("beforeunload", onUnload);
@@ -259,6 +273,7 @@ export default function Home() {
             liveUserTranscript={liveUserTranscript}
             level={level}
             recording={recorder.recording}
+            speaking={spoken.speaking}
           />
           <Composer
             busy={busy}

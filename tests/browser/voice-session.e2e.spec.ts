@@ -62,6 +62,8 @@ test("typed turn streams a live transcript and lands in the sidebar history", as
   // Both sides render as transcript text.
   await expect(page.locator(".bubble.mine .bubble-text").last()).toHaveText("Hello mock!");
   await waitForReply(page);
+  // Spoken reply: the model's audio streams back and plays in the browser.
+  await expect(page.locator(".speaker-indicator")).toBeVisible({ timeout: 15_000 });
 
   // Sidebar history: one conversation, titled from the first user turn.
   await expect(page.locator(".conversation-title").first()).toHaveText("Hello mock!");
